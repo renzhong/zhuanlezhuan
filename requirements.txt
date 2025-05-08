@@ -3,3 +3,6 @@ opencv-python
 scikit-image
 imagehash
 pillow
+flask
+werkzeug
+flask-cors

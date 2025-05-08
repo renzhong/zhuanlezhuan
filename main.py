@@ -5,6 +5,7 @@ from collections import deque
 import hashlib
 from dataclasses import dataclass
 from collections import Counter
+import os
 
 def get_patch_hash(img, x, y, size=5):
     patch = img[y:y+size, x:x+size]
@@ -108,6 +109,12 @@ class Cell:
     h: int      # 高
     img: any    # 该cell的图像
     cell_type: -1 # 棋子的类型
+
+@dataclass
+class TypeImg:
+    img: any
+    name: str
+    img_type: int
 
 def find_board_roi(image_path, top_n=10, select_idx=1):
     img = cv2.imread(image_path)
@@ -605,6 +612,166 @@ def show_game_board_with_highlight(game_board, debug_info, from_pos, to_pos):
                 row_str += cell_str
         print(row_str)
 
+def split_board_cells_v2(board_rect, rows=14, cols=10):
+    img = board_rect.img
+    h, w = img.shape[:2]
+
+    # 1. 检测所有小矩形
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    rects = []
+    for cnt in contours:
+        x, y, rw, rh = cv2.boundingRect(cnt)
+        area = rw * rh
+        print(f"area: {area}, x: {x}, y: {y}, rw: {rw}, rh: {rh}, rows*cols: {rows*cols}")
+        # if area < 100 or area > (w*h)//(rows*cols)//2:  # 过滤噪声
+        #     continue
+        cx = x + rw // 2
+        cy = y + rh // 2
+        rects.append({'x': x, 'y': y, 'w': rw, 'h': rh, 'cx': cx, 'cy': cy, 'img': img[y:y+rh, x:x+rw]})
+        # cv2.imwrite(f"one_{x}_{y}.png", img[y:y+rh, x:x+rw])
+
+    # 2. 计算理论 cell 中心点
+    cell_w = w / cols
+    cell_h = h / rows
+    cell_centers = []
+    for i in range(rows):
+        row = []
+        for j in range(cols):
+            cx = int((j + 0.5) * cell_w)
+            cy = int((i + 0.5) * cell_h)
+            row.append({'row': i, 'col': j, 'cx': cx, 'cy': cy})
+        cell_centers.append(row)
+
+    cells = []
+    for i in range(rows):
+        row = []
+        for j in range(cols):
+            row.append(None)
+        cells.append(row)
+
+    # 3. 匹配
+    for idx, rect in enumerate(rects):
+        min_dist = float('inf')
+        min_cell = None
+        for i in range(rows):
+            for j in range(cols):
+                dist = np.hypot(rect['cx'] - cell_centers[i][j]['cx'], rect['cy'] - cell_centers[i][j]['cy'])
+                if dist < min_dist:
+                    min_dist = dist
+                    min_cell = (i, j)
+        if min_cell:
+            cells[min_cell[0]][min_cell[1]] = Cell(min_cell[0], min_cell[1], rect['x'], rect['y'], rect['w'], rect['h'], rect['img'], -1)
+            print(f"match: {idx}, {min_cell[0]}, {min_cell[1]}")
+            # save_cell(cells[min_cell[0]][min_cell[1]], f"cell_{min_cell[0]}_{min_cell[1]}.png")
+
+    # cells = []
+    # used_rects = set()
+    # for i in range(rows):
+    #     row_cells = []
+    #     for j in range(cols):
+    #         min_dist = float('inf')
+    #         min_rect = None
+    #             if idx in used_rects:
+    #                 continue
+    #             dist = np.hypot(rect['cx'] - cell_centers[i][j]['cx'], rect['cy'] - cell_centers[i][j]['cy'])
+    #             if dist < min_dist:
+    #                 min_dist = dist
+    #                 min_rect = (idx, rect)
+    #         # 距离阈值可根据实际调整
+    #         if min_rect and min_dist < min(cell_w, cell_h) * 0.6:
+    #             idx, rect = min_rect
+    #             used_rects.add(idx)
+    #             cell_img = rect['img']
+    #             row_cells.append(Cell(i, j, rect['x'], rect['y'], rect['w'], rect['h'], cell_img, -1))
+    #         else:
+    #             # 空节点
+    #             row_cells.append(Cell(i, j, 0, 0, int(cell_w), int(cell_h), np.zeros((int(cell_h), int(cell_w), 3), dtype=np.uint8), 0))
+    #     cells.append(row_cells)
+    return cells
+
+def load_type_imgs(dir_path):
+    """
+    加载指定目录下所有 png 文件，返回 TypeImg 列表。
+    name 字段为文件名前缀（不含扩展名）。
+    """
+    type_imgs = []
+    img_type = 1
+    for fname in os.listdir(dir_path):
+        if fname.lower().endswith('.png'):
+            name = os.path.splitext(fname)[0]
+            img_path = os.path.join(dir_path, fname)
+            img = cv2.imread(img_path)
+            print(f"load_type_imgs name: {name}, w: {img.shape[1]}, h: {img.shape[0]}")
+            if img is not None:
+                type_imgs.append(TypeImg(img, name, img_type))
+                img_type += 1
+            else:
+                print(f"图片加载失败: {img_path}")
+    print(f"共加载 {len(type_imgs)} 个类型图片")
+    return type_imgs
+
+def find_cell_type(cell, type_imgs, threshold=0.7):
+    """
+    对 cell.img 与每个 type_img.img 进行 ncc 匹配，返回最相似的 TypeImg 和分数。
+    若所有分数都低于 threshold，则返回 (None, None)
+    """
+    best_score = -1
+    best_type_img = None
+    cell_img = cell.img
+    # 转灰度
+    if len(cell_img.shape) == 3:
+        cell_img_gray = cv2.cvtColor(cell_img, cv2.COLOR_BGR2GRAY)
+    else:
+        cell_img_gray = cell_img
+    for type_img in type_imgs:
+        tpl = type_img.img
+        if len(tpl.shape) == 3:
+            tpl_gray = cv2.cvtColor(tpl, cv2.COLOR_BGR2GRAY)
+        else:
+            tpl_gray = tpl
+        # 尺寸归一化
+        if cell_img_gray.shape != tpl_gray.shape:
+            tpl_gray_resized = cv2.resize(tpl_gray, (cell_img_gray.shape[1], cell_img_gray.shape[0]))
+        else:
+            tpl_gray_resized = tpl_gray
+        res = cv2.matchTemplate(cell_img_gray, tpl_gray_resized, cv2.TM_CCOEFF_NORMED)
+        score = res[0][0]
+        if score > best_score:
+            best_score = score
+            best_type_img = type_img
+    if best_score >= threshold:
+        return best_type_img, best_score
+    else:
+        return None, None
+
+def build_board_img(cells, type_imgs, cell_w=103, cell_h=107):
+    """
+    根据 cells 和 type_imgs 拼接出一个棋盘大图。
+    每个 cell 按 cell_type - 1 取 type_imgs，resize 到 cell_w*cell_h。
+    空节点填充全白。
+    返回拼接后的大图。
+    """
+    rows = len(cells)
+    cols = len(cells[0]) if rows > 0 else 0
+    board_img = np.ones((rows * cell_h, cols * cell_w, 3), dtype=np.uint8) * 255
+    for i in range(rows):
+        for j in range(cols):
+            cell = cells[i][j]
+            if cell is None or cell.cell_type == -1 or cell.cell_type == 0:
+                continue
+            idx = cell.cell_type - 1
+            if idx < 0 or idx >= len(type_imgs):
+                continue
+            tpl_img = type_imgs[idx].img
+            tpl_img_resized = cv2.resize(tpl_img, (cell_w, cell_h))
+            y0 = i * cell_h
+            x0 = j * cell_w
+            board_img[y0:y0+cell_h, x0:x0+cell_w] = tpl_img_resized
+    cv2.imwrite("board.png", board_img)
+    return board_img
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
@@ -623,72 +790,75 @@ if __name__ == '__main__':
 
     save_patch(img_path, r.x, r.y, r.w, r.h, "2.png")
 
-    cells = split_board_cells(r, 14, 10)
+    cells = split_board_cells_v2(r)
 
-    cell = cells[0][0]
-    cell2 = cells[0][2]
-    # save_cell(cell, "3.png")
+    type_imgs = load_type_imgs("type_imgs")
+    bg_imgs = cv2.imread("bg.png")
+    for i in range(len(cells)):
+        for j in range(len(cells[i])):
+            if cells[i][j] is None:
+                cells[i][j] = Cell(i, j, 0, 0, 103, 107, bg_imgs, 0)
+
+    # cell = cells[0][0]
+    # cell2 = cells[0][2]
+    # # save_cell(cell, "3.png")
 
     # 遍历cells，判断cell的类型
     cell_type = 1
     for row in cells:
         for cell in row:
-            if cell.cell_type == -1:
-                cell.cell_type = cell_type
-                cell_type += 1
-            # 遍历其他cell，判断是否相同
-            for row2 in cells:
-                for cell2 in row2:
-                    if cell2.cell_type != -1:
-                        continue
-                    is_same, score = is_same_cell_ncc(img, cell, cell2, 0.85)
-                    # print(f"cell: {cell.row},{cell.col}, cell2: {cell2.row},{cell2.col}, score: {score}")
-                    if is_same:
-                        # print(f"找到相同棋子, {cell.row},{cell.col}, {cell2.row},{cell2.col}, score: {score}")
-                        cell2.cell_type = cell.cell_type
-            if cell.cell_type == -1:
+            if cell.cell_type == 0:
+                continue
+            type_img, score = find_cell_type(cell, type_imgs, threshold=0.0)
+            if type_img is None:
                 print(f"没有找到形同的棋子, {cell.row},{cell.col}")
-
-    print(f"共有 {cell_type-1} 种棋子")
+                continue
+            if score < 0.9:
+                print(f"疑似匹配, {cell.row},{cell.col}, {type_img.name} score: {score}")
+                cv2.imwrite(f"cell_{cell.row}_{cell.col}.png", cell.img)
+                cv2.imwrite(f"type_{type_img.name}.png", type_img.img)
+            cell.cell_type = type_img.img_type
 
     # 统计每个 cell_type 的棋子数量
     type_counter = Counter()
     for row in cells:
         for cell in row:
-            if cell.cell_type != -1:
-                type_counter[cell.cell_type] += 1
+            type_counter[cell.cell_type] += 1
+
     print("每种棋子的数量：")
     for t, cnt in sorted(type_counter.items()):
         print(f"类型 {t}: {cnt} 个")
 
+    new_img = build_board_img(cells, type_imgs)
+
     # # ---- 4. 求解 ----
-    game_board = [[cell.cell_type for cell in row] for row in cells]
-    # print(game_board)
-    show_game_board(game_board)
-    dfs(game_board)
-    new_result = []
-    for i in range(len(result)-1, -1, -1):
-        new_result.append(result[i])
-    print(new_result)
+    # game_board = [[cell.cell_type for cell in row] for row in cells]
+    # # print(game_board)
+    # show_game_board(game_board)
+    # dfs(game_board)
+    # new_result = []
+    # for i in range(len(result)-1, -1, -1):
+    #     new_result.append(result[i])
+    # # print(new_result)
 
-    result_board = copy_board(game_board)
-    for i in range(len(new_result)):
-        # 打印矩阵
-        old_pos = new_result[i][0]
-        move_pos = new_result[i][1]
-        check_pos = new_result[i][2]
-        print(f"step {i}: {old_pos} -> {move_pos} match {check_pos}")
+    # result_board = copy_board(game_board)
+    # for i in range(len(new_result)):
+    #     # 打印矩阵
+    #     old_pos = new_result[i][0]
+    #     move_pos = new_result[i][1]
+    #     check_pos = new_result[i][2]
+    #     print(f"step {i}: {old_pos} -> {move_pos} match {check_pos}")
 
-        show_game_board_with_highlight(result_board, f"step {i}", old_pos, move_pos)
-        tmp_board = copy_board(result_board)
-        if old_pos[0] == move_pos[0] and old_pos[1] == move_pos[1]:
-            tmp_board[old_pos[0]][old_pos[1]] = 0
-            tmp_board[check_pos[0]][check_pos[1]] = 0
-            # show_game_board(tmp_board, "after erase")
-        else:
-            move_cell_2(tmp_board, result_board, old_pos, move_pos)
-            # show_game_board(tmp_board, "after move")
-            tmp_board[move_pos[0]][move_pos[1]] = 0
-            tmp_board[check_pos[0]][check_pos[1]] = 0
-            # show_game_board(tmp_board, "after erase")
-        result_board = copy_board(tmp_board)
+    #     show_game_board_with_highlight(result_board, f"step {i}", old_pos, move_pos)
+    #     tmp_board = copy_board(result_board)
+    #     if old_pos[0] == move_pos[0] and old_pos[1] == move_pos[1]:
+    #         tmp_board[old_pos[0]][old_pos[1]] = 0
+    #         tmp_board[check_pos[0]][check_pos[1]] = 0
+    #         # show_game_board(tmp_board, "after erase")
+    #     else:
+    #         move_cell_2(tmp_board, result_board, old_pos, move_pos)
+    #         # show_game_board(tmp_board, "after move")
+    #         tmp_board[move_pos[0]][move_pos[1]] = 0
+    #         tmp_board[check_pos[0]][check_pos[1]] = 0
+    #         # show_game_board(tmp_board, "after erase")
+    #     result_board = copy_board(tmp_board)
