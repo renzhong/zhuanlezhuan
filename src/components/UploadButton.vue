@@ -116,4 +116,16 @@ defineExpose({ setProgress, boardWidth })
   pointer-events: none;
   text-shadow: 0 1px 4px #fff, 0 -1px 4px #fff, 1px 0 4px #fff, -1px 0 4px #fff;
 }
+.shadcn-btn {
+  border: 1.5px solid #222;
+  box-shadow: 0 2px 8px 0 rgba(0,0,0,0.10);
+  background: #fff;
+  color: #222;
+  transition: box-shadow 0.2s, border 0.2s, color 0.2s;
+}
+.shadcn-btn:hover {
+  box-shadow: 0 4px 16px 0 rgba(0,0,0,0.18);
+  border-color: #000;
+  color: #000;
+}
 </style>

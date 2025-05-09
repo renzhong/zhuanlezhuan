@@ -107,4 +107,27 @@ function goNext() {
 .logo.vue:hover {
   filter: drop-shadow(0 0 2em #42b883aa);
 }
+.shadcn-btn {
+  padding: 0.5rem 1.2rem;
+  border-radius: 0.375rem;
+  border: 1.5px solid #6366f1; /* 主色调边框 */
+  background: #6366f1;          /* 主色调背景 */
+  color: #fff;
+  font-weight: 500;
+  box-shadow: 0 2px 8px 0 rgba(99, 102, 241, 0.15);
+  transition: background 0.2s, box-shadow 0.2s, border 0.2s;
+  cursor: pointer;
+}
+.shadcn-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #a5b4fc;
+  border-color: #a5b4fc;
+  box-shadow: none;
+}
+.shadcn-btn:not(:disabled):hover {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  box-shadow: 0 4px 16px 0 rgba(99, 102, 241, 0.25);
+}
 </style>

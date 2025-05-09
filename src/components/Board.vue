@@ -1,5 +1,5 @@
 <template>
-  <div class="relative" :style="{ width: boardWidth + 'px', height: boardHeight + 'px' }">
+  <div class="relative board-border" :style="{ width: boardWidth + 'px', height: boardHeight + 'px' }">
     <div
       v-for="(row, i) in 14"
       :key="i"
@@ -10,11 +10,11 @@
         v-for="(col, j) in 10"
         :key="j"
         style="display: flex; flex-direction: row; position: relative;"
-        :style="{ width: cellWidth + 'px', height: cellHeight + 'px' }"
+        :style="getCellStyle(i, j)"
       >
         <img
           :src="getCellImg(i, j)"
-          :style="{ width: cellWidth + 'px', height: cellHeight + 'px' }"
+          :style="getCellStyle(i, j)"
           class=""
         />
         <!-- 只渲染红框 -->
@@ -87,6 +87,22 @@ function shouldShowMark(i, j) {
   }
   return false
 }
+
+function getCellStyle(i, j) {
+  const style = {
+    width: cellWidth + 'px',
+    height: cellHeight + 'px'
+  }
+  // 左上
+  if (i === 0 && j === 0) style['borderTopLeftRadius'] = '12px'
+  // 右上
+  if (i === 0 && j === 9) style['borderTopRightRadius'] = '12px'
+  // 左下
+  if (i === 13 && j === 0) style['borderBottomLeftRadius'] = '12px'
+  // 右下
+  if (i === 13 && j === 9) style['borderBottomRightRadius'] = '12px'
+  return style
+}
 </script>
 
 <style scoped>
@@ -97,5 +113,20 @@ function shouldShowMark(i, j) {
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+.board-border {
+  border: 2px solid #222;
+  border-radius: 12px;
+  box-sizing: border-box;
+  background: #fff;
+  overflow: hidden;
+}
+
+img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 </style>
