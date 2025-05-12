@@ -13,11 +13,13 @@ def parse_board_image_api():
     file = request.files['file']
     file_bytes = np.frombuffer(file.read(), np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    board, type_imgs = parse_board_image(img)
+    result = parse_board_image(img)
+    type_imgs = result['type_imgs']
     type_imgs_map = {str(idx+1): f"/static/type_imgs/{img['name']}.png" for idx, img in enumerate(type_imgs)}
     return jsonify({
-        "board": board,
-        "typeImgs": type_imgs_map
+        "board": result['board'],
+        "typeImgs": type_imgs_map,
+        "parse_success": result['parse_success']
     })
 
 @app.route('/api/solve_board', methods=['POST'])

@@ -24,6 +24,14 @@ async function handleBoardParsed(data) {
   boardList.value = []
   actions.value = {}
   currentStep.value = 0
+  
+  // 如果解析失败，直接显示错误状态
+  // if (!data.parse_success) {
+  //   console.log('解析棋盘失败', data.parse_success)
+  //   uploadBtnRef.value?.setProgress(100, 3, '解析棋盘失败')
+  //   return
+  // }
+  
   // 2. 等待棋盘渲染完成后再异步请求求解接口
   await nextTick()
   await Promise.resolve() // 进一步确保渲染

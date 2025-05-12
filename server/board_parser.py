@@ -121,41 +121,38 @@ def split_board_cells_v3(board_rect, min_cells=10):
                 cells[i][j] = Cell(i, j, rect['x'], rect['y'], rect['w'], rect['h'], rect['img'], -1)
     return cells
 
-def parse_board_image(img, cell_split_version='v3'):
+def parse_board_image(img):
     # img: OpenCV 图像对象
     type_imgs = load_type_imgs(os.path.join('static', 'type_imgs'))
-    if cell_split_version == 'v3':
-        board_rect = find_board_roi(img)
-        if board_rect is None:
-            raise Exception('未检测到棋盘')
-        cells = split_board_cells_v3(board_rect)
-        if cells is None:
-            board_rect = find_board_roi(img, 2)
-            if board_rect is None:
-                raise Exception('未检测到棋盘')
-            # 回退到v2
-            cells = split_board_cells_v2(board_rect)
+    board_rect = find_board_roi(img)
+    if board_rect is None:
+        raise Exception('未检测到棋盘')
+    
+    cells = split_board_cells_v3(board_rect)
+    parse_success = cells is not None
+    
+    if not parse_success:
+        # 解析失败，返回空棋盘
+        bg_img = cv2.imread(os.path.join('static', 'bg.png'))
+        cells = [[Cell(i, j, 0, 0, 103, 107, bg_img, 0) for j in range(10)] for i in range(14)]
     else:
-        board_rect = find_board_roi(img, 2)
-        if board_rect is None:
-            raise Exception('未检测到棋盘')
-        cells = split_board_cells_v2(board_rect)
-    bg_img = cv2.imread(os.path.join('static', 'bg.png'))
-    for i in range(len(cells)):
-        for j in range(len(cells[i])):
-            if cells[i][j] is None:
-                cells[i][j] = Cell(i, j, 0, 0, 103, 107, bg_img, 0)
-    for row in cells:
-        for cell in row:
-            if cell.cell_type == 0:
-                continue
-            type_img, score = find_cell_type(cell, [TypeImg(**t) for t in type_imgs], threshold=0.0)
-            if type_img is not None and score >= 0.9:
-                cell.cell_type = type_img.img_type
-            else:
-                cell.cell_type = 0
-    board = [[cell.cell_type for cell in row] for row in cells]
-    return board, type_imgs
+        # 识别每个棋子的类型
+        for row in cells:
+            for cell in row:
+                if cell is None:
+                    continue
+                type_img, score = find_cell_type(cell, [TypeImg(**t) for t in type_imgs], threshold=0.0)
+                if type_img is not None and score >= 0.9:
+                    cell.cell_type = type_img.img_type
+                else:
+                    cell.cell_type = 0
+    
+    board = [[cell.cell_type if cell is not None else 0 for cell in row] for row in cells]
+    return {
+        'board': board,
+        'type_imgs': type_imgs,
+        'parse_success': parse_success
+    }
 
 if __name__ == '__main__':
     import sys
@@ -168,9 +165,10 @@ if __name__ == '__main__':
         print(f'无法读取图片: {img_path}')
         exit(1)
     try:
-        board, _ = parse_board_image(img, cell_split_version='v3')
+        result = parse_board_image(img)
+        print('识别结果:', '成功' if result['parse_success'] else '失败')
         print('识别到的棋盘:')
-        for row in board:
+        for row in result['board']:
             print(row)
     except Exception as e:
         print(f'识别失败: {e}')
