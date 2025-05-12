@@ -5,19 +5,15 @@ from utils import copy_board
 import os
 import numpy as np
 import cv2
-import time
 
 app = Flask(__name__, static_folder='static')
 
 @app.route('/api/parse_board_image', methods=['POST'])
 def parse_board_image_api():
-    start_time = time.time()
     file = request.files['file']
     file_bytes = np.frombuffer(file.read(), np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    t1 = time.time()
     board, type_imgs = parse_board_image(img)
-    print("parse_board_image: 棋盘解析完成, time =", time.time() - t1, ", 累计 =", time.time() - start_time)
     type_imgs_map = {str(idx+1): f"/static/type_imgs/{img['name']}.png" for idx, img in enumerate(type_imgs)}
     return jsonify({
         "board": board,
@@ -26,14 +22,9 @@ def parse_board_image_api():
 
 @app.route('/api/solve_board', methods=['POST'])
 def solve_board_api():
-    start_time = time.time()
     data = request.get_json()
     board = data['board']
-    t2 = time.time()
     actions = solve_board(board)
-    print("solve_board: 求解完成, time =", time.time() - t2, ", 累计 =", time.time() - start_time)
-    # 生成 board_list
-    t4 = time.time()
     board_list = []
     cur_board = copy_board(board)
     board_list.append({
@@ -59,7 +50,6 @@ def solve_board_api():
             "board": copy_board(cur_board),
             "action": next_action
         })
-    print("solve_board: board_list 构造完成, time =", time.time() - t4, ", 累计 =", time.time() - start_time)
     return jsonify({
         "actions": actions,
         "board_list": board_list
